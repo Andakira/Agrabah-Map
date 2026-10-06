@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>City Map Builder</title>
+<style>
+:root{--bg:#fff;--ink:#202124;--mute:#5f6368;--line:#dadce0;--acc:#1a73e8;--map:#f1f3f4;--grid:#e1e4e6;--road:#fff;--roadline:#c9cdd1;--field:#f8f9fa;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#202124;--ink:#e8eaed;--mute:#9aa0a6;--line:#3c4043;--acc:#8ab4f8;--map:#2b2d30;--grid:#35373a;--road:#4a4d51;--roadline:#17181a;--field:#2a2b2e}}
+:root[data-theme="dark"]{--bg:#202124;--ink:#e8eaed;--mute:#9aa0a6;--line:#3c4043;--acc:#8ab4f8;--map:#2b2d30;--grid:#35373a;--road:#4a4d51;--roadline:#17181a;--field:#2a2b2e}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+aside{width:350px;flex:none;overflow:auto;border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:14px}
+main{flex:1;position:relative;min-width:0;background:var(--map)}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+h1{font-size:18px;margin:0;font-weight:650}
+h1 small{display:block;font-weight:400;color:var(--mute);font-size:12px;margin-top:2px}
+.modes{display:flex;gap:6px}
+button,input,select,textarea{font:inherit;color:inherit}
+.modes button{flex:1;padding:8px 4px;font-size:13px;border:1px solid var(--line);background:var(--bg);border-radius:8px;cursor:pointer}
+.modes button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.box{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--field)}
+label{display:grid;gap:3px;color:var(--mute);font-size:12px}
+input,select{padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);width:100%}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.primary{padding:9px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+:root[data-theme="dark"] .primary{color:#111}
+.ghost{padding:6px 10px;border:1px solid var(--line);background:var(--bg);border-radius:6px;cursor:pointer}
+.hint{color:var(--mute);font-size:12px;margin:0}
+.hint.err{color:#d93025}
+#f.street .pinonly{display:none}
+#f.street:not(.area) .catonly{display:none}
+#f:not(.street) .streetonly{display:none}
+#list{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+#list li{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+#list li:hover,#list li.on{background:var(--field);outline:1px solid var(--line)}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.tx{flex:1;min-width:0;display:grid}
+.tx b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx span,.tx em{color:var(--mute);font-size:12px;font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt{display:flex;gap:4px}
+.bt a,.bt button{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);background:var(--bg);border-radius:6px;color:var(--mute);text-decoration:none;cursor:pointer;font-size:13px}
+.empty{color:var(--mute);cursor:default!important;padding:12px 4px!important}
+.bar{position:absolute;left:12px;bottom:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.zoom{position:absolute;right:12px;bottom:12px;display:grid;gap:4px}
+.zoom button{width:34px;height:34px;border:1px solid var(--line);background:var(--bg);border-radius:8px;font-size:18px;cursor:pointer}
+textarea{width:100%;height:80px;border:1px solid var(--line);border-radius:6px;background:var(--bg);padding:6px;font:11px monospace}
+summary{cursor:pointer;color:var(--mute)}
+@media (max-width:800px){#app{flex-direction:column-reverse}aside{width:100%;flex:1;border-right:0;border-top:1px solid var(--line)}main{flex:none;height:46%}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <h1>City Map Builder<small>Coordinates match map.earthmc.net (X, Z)</small></h1>
+  <div class="modes">
+    <button data-m="pan" class="on">Move</button>
+    <button data-m="pin">Add place</button>
+    <button data-m="street">Street</button>
+    <button data-m="area">Area</button>
+  </div>
+  <div class="box" id="f">
+    <label>Name<input id="name" placeholder="e.g. Maple Street or 12 Oak Lane"></label>
+    <label class="catonly">Category<select id="cat"></select></label>
+    <label>Address or note<input id="note" placeholder="Optional"></label>
+    <div class="row pinonly">
+      <label>X<input id="px" inputmode="numeric" placeholder="click map"></label>
+      <label>Z<input id="pz" inputmode="numeric" placeholder="click map"></label>
+    </div>
+    <div class="row streetonly">
+      <button class="ghost" id="undo">Undo point</button>
+      <button class="ghost" id="clr">Clear</button>
+    </div>
+    <button class="primary" id="add">Save place</button>
+    <p class="hint" id="msg">Choose “Add place” and click the map, or type X and Z.</p>
+  </div>
+  <div>
+    <input id="q" placeholder="Search places and streets">
+    <p class="hint" id="count" style="margin-top:6px"></p>
+  </div>
+  <ul id="list"></ul>
+  <details>
+    <summary>Background map image</summary>
+    <div class="box" style="margin-top:8px">
+      <p class="hint">Screenshot the real EarthMC map and add it here. Then enter the X and Z of the screenshot's top-left and bottom-right corners (hover them on the real map to read them).</p>
+      <input type="file" id="bgf" accept="image/*">
+      <div class="row"><label>Left X<input id="bgl" inputmode="numeric"></label><label>Top Z<input id="bgt" inputmode="numeric"></label></div>
+      <div class="row"><label>Right X<input id="bgr" inputmode="numeric"></label><label>Bottom Z<input id="bgb" inputmode="numeric"></label></div>
+      <label>Opacity<input type="range" id="bga" min="10" max="100" value="100"></label>
+      <p class="hint">Image off by a bit? Enter a spot's true X and Z, press the button, then click that spot on the image.</p>
+      <div class="row"><label>True X<input id="alx" value="16827" inputmode="numeric"></label><label>True Z<input id="alz" value="-3507" inputmode="numeric"></label></div>
+      <button class="ghost" id="alb">Click that spot on the image</button>
+      <button class="ghost" id="bgx">Remove image</button>
+    </div>
+  </details>
+  <details>
+    <summary>Backup and restore</summary>
+    <div style="display:grid;gap:6px;margin-top:8px">
+      <textarea id="bk" placeholder="Export fills this box. Paste saved JSON here to import."></textarea>
+      <div class="row"><button class="ghost" id="exp">Export</button><button class="ghost" id="imp">Import (replaces)</button></div>
+    </div>
+  </details>
+</aside>
+<main>
+  <canvas id="cv"></canvas>
+  <div class="bar" id="pos">X 16827  Z -3507</div>
+  <div class="zoom"><button id="zi" aria-label="Zoom in">+</button><button id="zo" aria-label="Zoom out">−</button><button id="home" aria-label="Back to start" style="font-size:13px">⌂</button></div>
+</main>
+</div>
+<script>
+const START={x:16827,z:-3507};
+const COL={Address:"#d93025",Landmark:"#9334e6",Food:"#f29900",Transport:"#1a73e8",Park:"#188038",Other:"#5f6368"};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let aligning=false,bg={img:null,src:"",l:0,t:0,r:0,b:0,a:100},items=[],view={x:START.x,z:START.z,s:1},mode="pan",draft=[],pending=null,sel=null,W=0,H=0,drag=null;
+try{items=JSON.parse(localStorage.getItem("citymap")||"[]")}catch(e){items=[]}
+function persist(){try{localStorage.setItem("citymap",JSON.stringify(items))}catch(e){}}
+$("#cat").innerHTML=Object.keys(COL).map(k=>`<option>${k}</option>`).join("");
+const cv=$("#cv"),ctx=cv.getContext("2d");
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const w2s=(x,z)=>[(x-view.x)*view.s+W/2,(z-view.z)*view.s+H/2];
+const s2w=(px,py)=>[view.x+(px-W/2)/view.s,view.z+(py-H/2)/view.s];
+function resize(){const d=window.devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);draw()}
+function line(pts,w,c,dash){ctx.beginPath();pts.forEach((p,i)=>{const[a,b]=w2s(p[0],p[1]);i?ctx.lineTo(a,b):ctx.moveTo(a,b)});ctx.lineWidth=w;ctx.strokeStyle=c;ctx.lineCap=ctx.lineJoin="round";ctx.setLineDash(dash||[]);ctx.stroke();ctx.setLineDash([])}
+function halo(t,x,y){ctx.lineWidth=3;ctx.strokeStyle=css("--map");ctx.strokeText(t,x,y);ctx.fillStyle=css("--ink");ctx.fillText(t,x,y)}
+function draw(){
+  ctx.fillStyle=css("--map");ctx.fillRect(0,0,W,H);
+  if(bg.img){const[a,b]=w2s(bg.l,bg.t),[c,d]=w2s(bg.r,bg.b);ctx.globalAlpha=bg.a/100;ctx.drawImage(bg.img,a,b,c-a,d-b);ctx.globalAlpha=1}
+  const st=[1,5,10,25,50,100,250,500,1000,5000].find(t=>t*view.s>=60)||5000;
+  const[x0,z0]=s2w(0,0),[x1,z1]=s2w(W,H);
+  ctx.strokeStyle=css("--grid");ctx.lineWidth=1;ctx.fillStyle=css("--mute");ctx.font="10px system-ui";ctx.textAlign="left";
+  ctx.beginPath();
+  for(let x=Math.ceil(x0/st)*st;x<=x1;x+=st){const[p]=w2s(x,0);ctx.moveTo(p,0);ctx.lineTo(p,H);ctx.fillText(x,p+3,11)}
+  for(let z=Math.ceil(z0/st)*st;z<=z1;z+=st){const[,p]=w2s(0,z);ctx.moveTo(0,p);ctx.lineTo(W,p);ctx.fillText(z,3,p-3)}
+  ctx.stroke();
+  items.filter(i=>i.t==="a").forEach(i=>{
+    const c=COL[i.cat]||COL.Other;ctx.beginPath();
+    i.pts.forEach((p,k)=>{const[a,b]=w2s(p[0],p[1]);k?ctx.lineTo(a,b):ctx.moveTo(a,b)});ctx.closePath();
+    ctx.globalAlpha=.22;ctx.fillStyle=c;ctx.fill();ctx.globalAlpha=1;
+    ctx.lineWidth=i.id===sel?3:2;ctx.strokeStyle=i.id===sel?css("--acc"):c;ctx.setLineDash([]);ctx.stroke();
+    const m=mid(i),[mx,my]=w2s(m[0],m[1]);ctx.font="600 12px system-ui";ctx.textAlign="center";halo(i.name,mx,my);ctx.textAlign="left"});
+  const rw=Math.max(5,Math.min(16,view.s*4));
+  items.filter(i=>i.t==="s").forEach(i=>{
+    line(i.pts,rw+2,i.id===sel?css("--acc"):css("--roadline"));line(i.pts,rw,css("--road"));
+    let best=0,bi=0;for(let k=0;k<i.pts.length-1;k++){const l=Math.hypot(i.pts[k+1][0]-i.pts[k][0],i.pts[k+1][1]-i.pts[k][1]);if(l>best){best=l;bi=k}}
+    const a=w2s(...i.pts[bi]),b=w2s(...i.pts[bi+1]);ctx.font="600 12px system-ui";
+    if(Math.hypot(b[0]-a[0],b[1]-a[1])>ctx.measureText(i.name).width+16){
+      let ang=Math.atan2(b[1]-a[1],b[0]-a[0]);if(Math.abs(ang)>Math.PI/2)ang+=Math.PI;
+      ctx.save();ctx.translate((a[0]+b[0])/2,(a[1]+b[1])/2);ctx.rotate(ang);ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=css("--ink");ctx.fillText(i.name,0,0);ctx.restore()}
+  });
+  ctx.textBaseline="alphabetic";
+  items.filter(i=>i.t==="p").forEach(i=>{
+    const[x,y]=w2s(...i.pts[0]);if(x<-50||y<-50||x>W+50||y>H+50)return;
+    ctx.beginPath();ctx.arc(x,y,i.id===sel?9:6,0,7);ctx.fillStyle=COL[i.cat]||COL.Other;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle="#fff";ctx.stroke();
+    ctx.font="600 12px system-ui";ctx.textAlign="left";halo(i.name,x+11,y+4)});
+  if(draft.length){line(mode==="area"&&draft.length>2?draft.concat([draft[0]]):draft,4,css("--acc"),[8,6]);draft.forEach(p=>{const[x,y]=w2s(...p);ctx.beginPath();ctx.arc(x,y,4,0,7);ctx.fillStyle=css("--acc");ctx.fill()})}
+  if(pending){const[x,y]=w2s(...pending);ctx.beginPath();ctx.arc(x,y,9,0,7);ctx.lineWidth=3;ctx.strokeStyle=css("--acc");ctx.stroke()}
+}
+function segd(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],l=dx*dx+dy*dy;let t=l?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l:0;t=Math.max(0,Math.min(1,t));return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)}
+function inPoly(p,pts){let c=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
+function hit(px,py){
+  for(const i of items.filter(i=>i.t==="p")){const[x,y]=w2s(...i.pts[0]);if(Math.hypot(x-px,y-py)<12)return i}
+  for(const i of items.filter(i=>i.t==="s"))for(let k=0;k<i.pts.length-1;k++){if(segd([px,py],w2s(...i.pts[k]),w2s(...i.pts[k+1]))<10)return i}
+  const w=s2w(px,py);return items.filter(i=>i.t==="a").find(i=>inPoly(w,i.pts))
+}
+function say(t,err){const m=$("#msg");m.textContent=t;m.className="hint"+(err?" err":"")}
+function setMode(m){
+  mode=m;draft=[];pending=null;
+  document.querySelectorAll(".modes button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));
+  $("#f").classList.toggle("street",m==="street"||m==="area");
+  $("#f").classList.toggle("area",m==="area");
+  $("#add").textContent=m==="street"?"Save street":m==="area"?"Save area":"Save place";
+  say(m==="street"?"Click along the street to add points, then save.":m==="area"?"Click each corner of the area in order, then save. It closes automatically.":m==="pin"?"Click the map to set the location, or type X and Z.":"Drag to move the map. Click a place to select it.");
+  draw()}
+document.querySelectorAll(".modes button").forEach(b=>b.onclick=()=>setMode(b.dataset.m));
+cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,vx:view.x,vz:view.z,m:false}};
+cv.onpointermove=e=>{
+  const r=cv.getBoundingClientRect(),[x,z]=s2w(e.clientX-r.left,e.clientY-r.top);
+  $("#pos").textContent=`X ${Math.round(x)}  Z ${Math.round(z)}`;
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>4)drag.m=true;if(drag.m){view.x=drag.vx-dx/view.s;view.z=drag.vz-dy/view.s;draw()}}};
+cv.onpointerup=e=>{
+  const was=drag;drag=null;if(!was||was.m)return;
+  const r=cv.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top,[x,z]=s2w(px,py).map(Math.round);
+  if(aligning){aligning=false;$("#alb").textContent="Click that spot on the image";
+    const tx=parseFloat($("#alx").value),tz=parseFloat($("#alz").value);
+    if(bg.img&&!isNaN(tx)&&!isNaN(tz)){const dx=tx-x,dz=tz-z;bg.l+=dx;bg.r+=dx;bg.t+=dz;bg.b+=dz;fillBg();saveBg()}
+    draw();return}
+  if(mode==="pin"){pending=[x,z];$("#px").value=x;$("#pz").value=z}
+  else if(mode==="street"||mode==="area"){draft.push([x,z]);say(draft.length+" point"+(draft.length>1?"s":"")+" placed.")}
+  else{const h=hit(px,py);sel=h?h.id:null;renderList();if(h)document.querySelector(`[data-id="${h.id}"]`)?.scrollIntoView({block:"nearest"})}
+  draw()};
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top,[wx,wz]=s2w(px,py);
+  view.s=Math.max(.03,Math.min(40,view.s*(e.deltaY<0?1.2:1/1.2)));view.x=wx-(px-W/2)/view.s;view.z=wz-(py-H/2)/view.s;draw()},{passive:false});
+function zoom(f){view.s=Math.max(.03,Math.min(40,view.s*f));draw()}
+$("#zi").onclick=()=>zoom(1.5);$("#zo").onclick=()=>zoom(1/1.5);
+$("#home").onclick=()=>{view={x:START.x,z:START.z,s:1};draw()};
+$("#undo").onclick=()=>{draft.pop();draw()};$("#clr").onclick=()=>{draft=[];draw()};
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
+$("#add").onclick=()=>{
+  const name=$("#name").value.trim(),note=$("#note").value.trim();
+  if(!name)return say("Give it a name first.",1);
+  if(mode==="street"||mode==="area"){
+    const a=mode==="area";
+    if(draft.length<(a?3:2))return say(a?"Click at least 3 corners on the map.":"Click at least 2 points on the map.",1);
+    items.push({id:uid(),t:a?"a":"s",name,note,cat:a?$("#cat").value:undefined,pts:draft.slice()});draft=[];
+  }else{
+    const x=parseInt($("#px").value),z=parseInt($("#pz").value);
+    if(isNaN(x)||isNaN(z))return say("Click the map or enter both X and Z.",1);
+    items.push({id:uid(),t:"p",name,note,cat:$("#cat").value,pts:[[x,z]]});pending=null;$("#px").value=$("#pz").value="";
+  }
+  $("#name").value=$("#note").value="";persist();renderList();draw();say("Saved “"+name+"”.")};
+const mid=i=>{if(i.t==="a"){const n=i.pts.length;return[Math.round(i.pts.reduce((a,p)=>a+p[0],0)/n),Math.round(i.pts.reduce((a,p)=>a+p[1],0)/n)]}const p=i.pts[Math.floor(i.pts.length/2)];return[Math.round(p[0]),Math.round(p[1])]};
+const url=(x,z)=>`https://map.earthmc.net/?zoom=5&x=${x}&z=${z}`;
+function renderList(){
+  const q=$("#q").value.toLowerCase();
+  const rows=items.filter(i=>(i.name+" "+(i.note||"")+" "+(i.cat||"street")).toLowerCase().includes(q));
+  $("#count").textContent=items.length?`${items.length} saved`:"";
+  $("#list").innerHTML=rows.map(i=>{const[x,z]=mid(i);
+    return `<li data-id="${i.id}" class="${i.id===sel?"on":""}"><span class="dot" style="background:${i.t==="s"?"var(--mute)":COL[i.cat]||COL.Other}"></span><div class="tx"><b>${esc(i.name)}</b><span>${i.t==="s"?"Street":i.t==="a"?"Area · "+esc(i.cat):esc(i.cat)}${i.note?" · "+esc(i.note):""}</span><em>X ${x}, Z ${z}</em></div><div class="bt"><a href="${url(x,z)}" target="_blank" rel="noopener" title="Open on EarthMC map">↗</a><button data-del="${i.id}" title="Delete">✕</button></div></li>`}).join("")||`<li class="empty">${items.length?"No matches.":"No places yet. Add your first one above."}</li>`}
+$("#q").oninput=renderList;
+$("#list").onclick=e=>{
+  const d=e.target.closest("[data-del]");
+  if(d){items=items.filter(i=>i.id!==d.dataset.del);persist();renderList();draw();return}
+  if(e.target.closest("a"))return;
+  const li=e.target.closest("li[data-id]");if(!li)return;
+  const i=items.find(i=>i.id===li.dataset.id);sel=i.id;const[x,z]=mid(i);view.x=x;view.z=z;view.s=Math.max(view.s,2);renderList();draw()};
+$("#exp").onclick=()=>{$("#bk").value=JSON.stringify(items);$("#bk").select()};
+$("#imp").onclick=()=>{try{const a=JSON.parse($("#bk").value);if(!Array.isArray(a))throw 0;items=a.filter(i=>i&&i.name&&Array.isArray(i.pts)).map(i=>({...i,id:i.id||uid()}));persist();renderList();draw();say("Imported "+items.length+" items.")}catch(e){say("That doesn't look like exported map data.",1)}};
+function fillBg(){["l","t","r","b"].forEach(k=>$("#bg"+k).value=Math.round(bg[k]));$("#bga").value=bg.a}
+function saveBg(){try{localStorage.setItem("citymap_bg",JSON.stringify({src:bg.src,l:bg.l,t:bg.t,r:bg.r,b:bg.b,a:bg.a}))}catch(e){say("The image is showing, but it's too large to keep after you close the page.",1)}}
+try{const s=JSON.parse(localStorage.getItem("citymap_bg")||"null");if(s&&s.src){bg={...bg,...s};const im=new Image();im.onload=()=>{bg.img=im;fillBg();draw()};im.src=s.src}}catch(e){}
+$("#bgf").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{const im=new Image();im.onload=()=>{
+    const[x0,z0]=s2w(0,0),[x1,z1]=s2w(W,H),ar=im.width/im.height,vw=x1-x0,vh=z1-z0;
+    let w=vw*.8,h=w/ar;if(h>vh*.8){h=vh*.8;w=h*ar}
+    bg={...bg,img:im,src:r.result,l:view.x-w/2,t:view.z-h/2,r:view.x+w/2,b:view.z+h/2};
+    fillBg();saveBg();draw()};im.src=r.result};
+  r.readAsDataURL(f)};
+["l","t","r","b"].forEach(k=>$("#bg"+k).oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v)){bg[k]=v;saveBg();draw()}});
+$("#bga").oninput=e=>{bg.a=+e.target.value;saveBg();draw()};
+$("#alb").onclick=()=>{if(!bg.img){say("Add a background image first.",1);return}aligning=true;$("#alb").textContent="Now click the spot on the map…"};
+$("#bgx").onclick=()=>{bg.img=null;bg.src="";try{localStorage.removeItem("citymap_bg")}catch(e){}draw()};
+addEventListener("resize",resize);
+matchMedia("(prefers-color-scheme:dark)").addEventListener?.("change",draw);
+renderList();resize();
+</script>
+</body>
+</html>
