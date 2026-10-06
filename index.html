@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>City Map</title>
+<style>
+:root{--bg:#fff;--ink:#202124;--mute:#5f6368;--line:#dadce0;--acc:#1a73e8;--map:#f1f3f4;--grid:#e1e4e6;--road:#fff;--roadline:#c9cdd1;--field:#f8f9fa;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#202124;--ink:#e8eaed;--mute:#9aa0a6;--line:#3c4043;--acc:#8ab4f8;--map:#2b2d30;--grid:#35373a;--road:#4a4d51;--roadline:#17181a;--field:#2a2b2e}}
+html{height:100%}*{box-sizing:border-box}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{display:flex;height:100%}
+aside{width:340px;flex:none;overflow:auto;border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:12px}
+main{flex:1;position:relative;min-width:0;background:var(--map)}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+h1{font-size:18px;margin:0;font-weight:650}
+h1 small{display:block;font-weight:400;color:var(--mute);font-size:12px;margin-top:2px}
+input{font:inherit;color:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);width:100%}
+.hint{color:var(--mute);font-size:12px;margin:0}
+#legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--mute)}
+#legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+#list{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+#list li{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+#list li:hover,#list li.on{background:var(--field);outline:1px solid var(--line)}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.tx{flex:1;min-width:0;display:grid}
+.tx b,.tx span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx span{color:var(--mute);font-size:12px}
+.empty{color:var(--mute);cursor:default!important;padding:12px 4px!important}
+#card{position:absolute;left:12px;top:12px;max-width:280px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px}
+#card[hidden]{display:none}
+#card button{position:absolute;right:6px;top:4px;border:0;background:none;color:var(--mute);font-size:16px;cursor:pointer}
+#card a{color:var(--acc)}
+.bar{position:absolute;left:12px;bottom:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.zoom{position:absolute;right:12px;bottom:12px;display:grid;gap:4px}
+.zoom button{width:34px;height:34px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;font-size:18px;cursor:pointer}
+@media (max-width:800px){#app{flex-direction:column-reverse}aside{width:100%;flex:1;border-right:0;border-top:1px solid var(--line)}main{flex:none;height:50%}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <h1>City Map<small>Click a place on the map or in the list</small></h1>
+  <input id="q" placeholder="Search places and streets">
+  <div id="legend"></div>
+  <p class="hint" id="count"></p>
+  <ul id="list"></ul>
+</aside>
+<main>
+  <canvas id="cv"></canvas>
+  <div id="card" hidden></div>
+  <div class="bar" id="pos">X –  Z –</div>
+  <div class="zoom"><button id="zi" aria-label="Zoom in">+</button><button id="zo" aria-label="Zoom out">−</button><button id="fit" aria-label="Show everything" style="font-size:13px">⌂</button></div>
+</main>
+</div>
+<script>
+const COL={Address:"#d93025",Landmark:"#9334e6",Food:"#f29900",Transport:"#1a73e8",Park:"#188038",Other:"#5f6368"};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let items=[],bg={img:null},view={x:16827,z:-3507,s:1},sel=null,W=0,H=0,drag=null;
+$("#legend").innerHTML=Object.keys(COL).map(k=>`<span><i style="background:${COL[k]}"></i>${k}</span>`).join("");
+const cv=$("#cv"),ctx=cv.getContext("2d");
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const w2s=(x,z)=>[(x-view.x)*view.s+W/2,(z-view.z)*view.s+H/2];
+const s2w=(px,py)=>[view.x+(px-W/2)/view.s,view.z+(py-H/2)/view.s];
+const mid=i=>{if(i.t==="a"){const n=i.pts.length;return[Math.round(i.pts.reduce((a,p)=>a+p[0],0)/n),Math.round(i.pts.reduce((a,p)=>a+p[1],0)/n)]}const p=i.pts[Math.floor(i.pts.length/2)];return[Math.round(p[0]),Math.round(p[1])]};
+const url=(x,z)=>`https://map.earthmc.net/?zoom=5&x=${x}&z=${z}`;
+function resize(){const d=window.devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);draw()}
+function fit(){const P=items.flatMap(i=>i.pts);if(!P.length)return;const xs=P.map(p=>p[0]),zs=P.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),z0=Math.min(...zs),z1=Math.max(...zs);
+  view.x=(x0+x1)/2;view.z=(z0+z1)/2;view.s=Math.max(.03,Math.min(10,Math.min(W/((x1-x0)||1),H/((z1-z0)||1))*.8));draw()}
+function line(pts,w,c){ctx.beginPath();pts.forEach((p,i)=>{const[a,b]=w2s(p[0],p[1]);i?ctx.lineTo(a,b):ctx.moveTo(a,b)});ctx.lineWidth=w;ctx.strokeStyle=c;ctx.lineCap=ctx.lineJoin="round";ctx.stroke()}
+function halo(t,x,y){ctx.lineWidth=3;ctx.strokeStyle=css("--map");ctx.strokeText(t,x,y);ctx.fillStyle=css("--ink");ctx.fillText(t,x,y)}
+function draw(){
+  ctx.fillStyle=css("--map");ctx.fillRect(0,0,W,H);
+  if(bg.img){const[a,b]=w2s(bg.l,bg.t),[c,d]=w2s(bg.r,bg.b);ctx.globalAlpha=bg.a==null?1:bg.a/100;ctx.drawImage(bg.img,a,b,c-a,d-b);ctx.globalAlpha=1}
+  const st=[1,5,10,25,50,100,250,500,1000,5000].find(t=>t*view.s>=60)||5000;
+  const[x0,z0]=s2w(0,0),[x1,z1]=s2w(W,H);
+  ctx.strokeStyle=css("--grid");ctx.lineWidth=1;ctx.fillStyle=css("--mute");ctx.font="10px system-ui";ctx.textAlign="left";ctx.beginPath();
+  for(let x=Math.ceil(x0/st)*st;x<=x1;x+=st){const[p]=w2s(x,0);ctx.moveTo(p,0);ctx.lineTo(p,H);ctx.fillText(x,p+3,11)}
+  for(let z=Math.ceil(z0/st)*st;z<=z1;z+=st){const[,p]=w2s(0,z);ctx.moveTo(0,p);ctx.lineTo(W,p);ctx.fillText(z,3,p-3)}
+  ctx.stroke();
+  items.filter(i=>i.t==="a").forEach(i=>{
+    const c=COL[i.cat]||COL.Other;ctx.beginPath();
+    i.pts.forEach((p,k)=>{const[a,b]=w2s(p[0],p[1]);k?ctx.lineTo(a,b):ctx.moveTo(a,b)});ctx.closePath();
+    ctx.globalAlpha=.22;ctx.fillStyle=c;ctx.fill();ctx.globalAlpha=1;
+    ctx.lineWidth=i.id===sel?3:2;ctx.strokeStyle=i.id===sel?css("--acc"):c;ctx.stroke();
+    const m=mid(i),[mx,my]=w2s(m[0],m[1]);ctx.font="600 12px system-ui";ctx.textAlign="center";halo(i.name,mx,my);ctx.textAlign="left"});
+  const rw=Math.max(5,Math.min(16,view.s*4));
+  items.filter(i=>i.t==="s").forEach(i=>{
+    line(i.pts,rw+2,i.id===sel?css("--acc"):css("--roadline"));line(i.pts,rw,css("--road"));
+    let best=0,bi=0;for(let k=0;k<i.pts.length-1;k++){const l=Math.hypot(i.pts[k+1][0]-i.pts[k][0],i.pts[k+1][1]-i.pts[k][1]);if(l>best){best=l;bi=k}}
+    const a=w2s(...i.pts[bi]),b=w2s(...i.pts[bi+1]);ctx.font="600 12px system-ui";
+    if(Math.hypot(b[0]-a[0],b[1]-a[1])>ctx.measureText(i.name).width+16){
+      let ang=Math.atan2(b[1]-a[1],b[0]-a[0]);if(Math.abs(ang)>Math.PI/2)ang+=Math.PI;
+      ctx.save();ctx.translate((a[0]+b[0])/2,(a[1]+b[1])/2);ctx.rotate(ang);ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=css("--ink");ctx.fillText(i.name,0,0);ctx.restore()}
+  });
+  ctx.textBaseline="alphabetic";
+  items.filter(i=>i.t==="p").forEach(i=>{
+    const[x,y]=w2s(...i.pts[0]);if(x<-50||y<-50||x>W+50||y>H+50)return;
+    ctx.beginPath();ctx.arc(x,y,i.id===sel?9:6,0,7);ctx.fillStyle=COL[i.cat]||COL.Other;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle="#fff";ctx.stroke();
+    ctx.font="600 12px system-ui";ctx.textAlign="left";halo(i.name,x+11,y+4)});
+}
+function segd(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],l=dx*dx+dy*dy;let t=l?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l:0;t=Math.max(0,Math.min(1,t));return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy)}
+function inPoly(p,pts){let c=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
+function hit(px,py){
+  for(const i of items.filter(i=>i.t==="p")){const[x,y]=w2s(...i.pts[0]);if(Math.hypot(x-px,y-py)<12)return i}
+  for(const i of items.filter(i=>i.t==="s"))for(let k=0;k<i.pts.length-1;k++){if(segd([px,py],w2s(...i.pts[k]),w2s(...i.pts[k+1]))<10)return i}
+  const w=s2w(px,py);return items.filter(i=>i.t==="a").find(i=>inPoly(w,i.pts))
+}
+function pick(i,fly){
+  sel=i?i.id:null;
+  if(!i)$("#card").hidden=true;
+  else{const[x,z]=mid(i);if(fly){view.x=x;view.z=z;view.s=Math.max(view.s,2)}
+    $("#card").innerHTML=`<button id="cx" aria-label="Close">×</button><b>${esc(i.name)}</b><span style="color:var(--mute)">${i.t==="s"?"Street":i.t==="a"?"Area · "+esc(i.cat):esc(i.cat)}</span>${i.note?`<span>${esc(i.note)}</span>`:""}<span style="color:var(--mute)">X ${x}, Z ${z}</span><a href="${url(x,z)}" target="_blank" rel="noopener">Open on the EarthMC map</a>`;
+    $("#card").hidden=false;$("#cx").onclick=()=>pick(null)}
+  renderList();draw()}
+function renderList(){
+  const q=$("#q").value.toLowerCase();
+  const rows=items.filter(i=>(i.name+" "+(i.note||"")+" "+(i.cat||"street")).toLowerCase().includes(q));
+  $("#count").textContent=items.length?`${rows.length} of ${items.length} places`:"";
+  $("#list").innerHTML=rows.map(i=>`<li data-id="${i.id}" class="${i.id===sel?"on":""}"><span class="dot" style="background:${i.t==="s"?"var(--mute)":COL[i.cat]||COL.Other}"></span><div class="tx"><b>${esc(i.name)}</b><span>${i.t==="s"?"Street":i.t==="a"?"Area · "+esc(i.cat):esc(i.cat)}${i.note?" · "+esc(i.note):""}</span></div></li>`).join("")||`<li class="empty">${items.length?"No matches.":"Nothing to show yet."}</li>`}
+$("#q").oninput=renderList;
+$("#list").onclick=e=>{const li=e.target.closest("li[data-id]");if(li)pick(items.find(i=>i.id===li.dataset.id),true)};
+cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,vx:view.x,vz:view.z,m:false}};
+cv.onpointermove=e=>{
+  const r=cv.getBoundingClientRect(),[x,z]=s2w(e.clientX-r.left,e.clientY-r.top);
+  $("#pos").textContent=`X ${Math.round(x)}  Z ${Math.round(z)}`;
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>4)drag.m=true;if(drag.m){view.x=drag.vx-dx/view.s;view.z=drag.vz-dy/view.s;draw()}}};
+cv.onpointerup=e=>{const was=drag;drag=null;if(!was||was.m)return;const r=cv.getBoundingClientRect();pick(hit(e.clientX-r.left,e.clientY-r.top))};
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top,[wx,wz]=s2w(px,py);
+  view.s=Math.max(.03,Math.min(40,view.s*(e.deltaY<0?1.2:1/1.2)));view.x=wx-(px-W/2)/view.s;view.z=wz-(py-H/2)/view.s;draw()},{passive:false});
+const zoom=f=>{view.s=Math.max(.03,Math.min(40,view.s*f));draw()};
+$("#zi").onclick=()=>zoom(1.5);$("#zo").onclick=()=>zoom(1/1.5);$("#fit").onclick=fit;
+addEventListener("resize",resize);
+resize();
+fetch("data.json").then(r=>r.json()).then(a=>{items=a.filter(i=>i&&i.name&&Array.isArray(i.pts)&&i.pts.length);renderList();fit()}).catch(()=>{$("#list").innerHTML='<li class="empty">Could not load data.json. Make sure it is in the same folder as index.html.</li>'});
+fetch("background.json").then(r=>r.json()).then(c=>{const im=new Image();im.onload=()=>{bg={...c,img:im};draw()};im.src=c.image}).catch(()=>{});
+</script>
+</body>
+</html>
